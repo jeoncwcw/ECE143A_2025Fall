@@ -12,20 +12,7 @@ import torch.nn.functional as F
 from .loss import forward_ctc, forward_cr_ctc
 
 
-import wandb
-
-
 def trainModel(args, model):
-    
-    if len(args['wandb_id']) > 0:
-        
-        wandb.init(project="Neural Decoder", entity="skaasyap-ucla", 
-                   config=dict(args), name=args['modelName'], 
-                   resume="must", id=args["wandb_id"])
-    else:
-        wandb.init(project="Neural Decoder", 
-                   entity="skaasyap-ucla", config=dict(args), name=args['modelName'])
-        
     
     os.makedirs(args["outputDir"], exist_ok=True)
     torch.manual_seed(args["seed"])
@@ -37,13 +24,10 @@ def trainModel(args, model):
     trainLoader, testLoader, loadedData = getDatasetLoaders(
         args["datasetPath"],
         args["batchSize"],
-        args['restricted_days'], 
-        args['ventral_6v_only']
     )
     
     
     # Watch the model
-    wandb.watch(model, log="all")  # Logs gradients, parameters, and gradients histograms
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
     
@@ -189,17 +173,10 @@ def trainModel(args, model):
             allLoss = []
             total_edit_distance = 0
             total_seq_length = 0
-            have_second = args.get('nClasses_2') is not None  # <-- added
-            if have_second: 
-                total_edit_distance2 = 0
-                total_seq_length2 = 0
             
             # <-- unpack batch conditionally
             for batch in testLoader:
-                if have_second:
-                    X, y, X_len, y_len, testDayIdx, y2, y2_len = batch   # <-- changed
-                else:
-                    X, y, X_len, y_len, testDayIdx = batch                # <-- changed
+                X, y, X_len, y_len, testDayIdx = batch                # <-- changed
                 
                 if args['maxDay'] is not None:
                     testDayIdx.fill_(args['maxDay'])
@@ -211,25 +188,14 @@ def trainModel(args, model):
                     X_len.to(args["device"]),
                     y_len.to(args["device"]),
                     testDayIdx.to(args["device"]),
-                )
-                if have_second:
-                    y2     = y2.to(args["device"])                        # <-- added
-                    y2_len = y2_len.to(args["device"])                    # <-- added
+                )                  # <-- added
                 
-                adjustedLens = model.compute_length(X_len)
-            
-                # Compute prediction error (use testDayIdx, not dayIdx)
-                if have_second:
-                    pred, pred2 = model.forward(X, X_len, testDayIdx)     # <-- fixed dayIdx -> testDayIdx
-                    loss1 = forward_ctc(pred,  adjustedLens, y,  y_len)
-                    loss2 = forward_ctc(pred2, adjustedLens, y2, y2_len)  # <-- uses pred2, y2, y2_len
-                    loss = loss1 + loss2
-                    allLoss.append(loss2.item())                                # <-- simpler & safe
+                adjustedLens = model.compute_length(X_len)                                # <-- simpler & safe
                     
-                else:
-                    pred = model.forward(X, X_len, testDayIdx)            # <-- fixed dayIdx -> testDayIdx
-                    loss = forward_ctc(pred, adjustedLens, y, y_len)
-                    allLoss.append(loss.item())                                # <-- simpler & safe
+                
+                pred = model.forward(X, X_len, testDayIdx)            # <-- fixed dayIdx -> testDayIdx
+                loss = forward_ctc(pred, adjustedLens, y, y_len)
+                allLoss.append(loss.item())                                # <-- simpler & safe
 
                 for iterIdx in range(pred.shape[0]):
                     # no need to wrap with torch.tensor(...)
@@ -243,29 +209,14 @@ def trainModel(args, model):
                     matcher = SequenceMatcher(a=trueSeq.tolist(), b=decodedSeq.tolist())
                     total_edit_distance += matcher.distance()
                     total_seq_length += len(trueSeq)
-                    
-                if have_second:
-                    for iterIdx in range(pred2.shape[0]):
-                        decodedSeq2 = torch.argmax(pred2[iterIdx, 0:adjustedLens[iterIdx], :], dim=-1)  # <-- simplified
-                        decodedSeq2 = torch.unique_consecutive(decodedSeq2, dim=-1)
-                        decodedSeq2 = decodedSeq2.cpu().detach().numpy()
-                        decodedSeq2 = np.array([i for i in decodedSeq2 if i != 0])
-
-                        trueSeq2 = np.array(y2[iterIdx][0:y2_len[iterIdx]].cpu().detach())
-
-                        matcher = SequenceMatcher(a=trueSeq2.tolist(), b=decodedSeq2.tolist())
-                        total_edit_distance2 += matcher.distance()
-                        total_seq_length2 += len(trueSeq2)                 # <-- fixed trueSeq -> trueSeq2
+                                  # <-- fixed trueSeq -> trueSeq2
 
             avgDayLoss = np.mean(allLoss) if allLoss else 0.0
             cer = total_edit_distance / total_seq_length if total_seq_length > 0 else float('nan')
-            if have_second:
-                cer2 = total_edit_distance2 / total_seq_length2 if total_seq_length2 > 0 else float('nan')
-
+            
             endTime = time.time()
             print(
                 f"Epoch {epoch}, ctc loss: {avgDayLoss:>7f}, cer: {cer:>7f}"
-                + (f", cer2: {cer2:>7f}" if have_second else "")
                 + f", time/batch: {(endTime - startTime)/100:>7.3f}"
             )
                 
@@ -276,30 +227,25 @@ def trainModel(args, model):
                 "cer": cer,
                 "time_per_epoch": (endTime - startTime) / 100,
             }
-            if have_second:
-                log_dict["per"] = cer2   # (consider renaming to 'cer2')
                 
             if args['consistency']:
                 log_dict['train_kl_loss'] = avgTrainKLLoss
                 
-            wandb.log(log_dict)
-
+            msg = f"[Epoch {epoch+1}/{args['n_epochs']}] train_ctc={avgTrainLoss:.4f}, val_ctc={avgDayLoss:.4f}, cer={cer:.4f}"
+            print(msg, flush=True)
         if len(testCER) > 0 and cer < np.min(testCER):
             torch.save(model.state_dict(), args["outputDir"] + "/modelWeights")
             torch.save(optimizer.state_dict(), args["outputDir"] + "/optimizer")
             torch.save(scheduler.state_dict(), args['outputDir'] + '/scheduler')
+            print(f"Saved new best model at epoch {epoch+1} with CER {cer:.4f}")
             
         if len(testLoss) > 0 and avgDayLoss < np.min(testLoss):
             torch.save(model.state_dict(), args["outputDir"] + "/modelWeights_ctc")
-            
-        if have_second:
-            if len(testCER2) > 0 and cer2 < np.min(testCER2):
-                torch.save(model.state_dict(), args["outputDir"] + "/modelWeights2")
+            print(f"Saved new best CTC model at epoch {epoch+1} with Loss {avgDayLoss:.4f}")
+        
                 
         testLoss.append(avgDayLoss)
         testCER.append(cer)
-        if have_second:
-            testCER2.append(cer2)
 
         tStats = {}
         tStats["testLoss"] = np.array(testLoss)
@@ -310,5 +256,4 @@ def trainModel(args, model):
             
         scheduler.step()
                     
-    wandb.finish()
     return 

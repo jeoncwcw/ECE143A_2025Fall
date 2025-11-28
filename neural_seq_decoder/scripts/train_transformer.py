@@ -2,14 +2,14 @@ import os
 import torch
 import numpy as np
 
-from transformer.transformer_trainer import trainModel
+from transformer_decoder.transformer_trainer import trainModel
 
-from transformer.bit import BiT_Phoneme
+from transformer_decoder.bit import BiT_Phoneme
 
 
 model_name = f"transformer_baseline_v1"
-output_dir = ""
-dataset_path = ""
+output_dir = "/mnt/data/jeon/baseline_logs/transformerBaselinev1"
+dataset_path = "/mnt/data/jeon/competitionData/ptDecoder_ctc"
     
     # Create config dictionary
 args = {
@@ -18,7 +18,6 @@ args = {
     'datasetPath': dataset_path,
     'modelName': model_name,
     'maxDay': None,
-    'restricted_days': [],
     'patch_size': (5, 256),
     'dim': 384,
     'depth': 5,
@@ -27,7 +26,6 @@ args = {
     'dim_head': 64,
     'T5_style_pos': True,
     'nClasses': 40,
-    'nClasses_2': None, # set to None if only one output head 
     'whiteNoiseSD': 0.8,
     'gaussianSmoothWidth': 2.0,
     'constantOffsetSD': 0.2,
@@ -45,11 +43,9 @@ args = {
     'milestones': [150],
     'gamma': 0.1,
     'extra_notes': "",
-    'device': 'cuda:2',
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'load_pretrained_model': "",
-    'wandb_id': "",
     'start_epoch': 0,
-    'ventral_6v_only': False,
     'mask_token_zero' : False,
     'num_masks_channels' : 0, # number of masks per grid
     'max_mask_channels' : 0, # maximum number of channels to mask per mask
@@ -75,7 +71,6 @@ model = BiT_Phoneme(
     dim=args['dim'],
     dim_head=args['dim_head'],
     nClasses=args['nClasses'],
-    nClasses_2=args['nClasses_2'],
     depth=args['depth'],
     heads=args['heads'],
     mlp_dim_ratio=args['mlp_dim_ratio'],
