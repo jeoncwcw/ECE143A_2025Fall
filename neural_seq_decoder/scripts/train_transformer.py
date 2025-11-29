@@ -62,7 +62,7 @@ print(f"Using dataset: {args['datasetPath']}")
 
 # Warn if output directory exists
 if os.path.exists(args['outputDir']):
-    print(f"Output directory '{args['outputDir']}' already exists. Press 'c' to continue.")
+    print(f"[WARNING] Output directory '{args['outputDir']}' already exists. Press 'c' to continue.")
     breakpoint()
         
 torch.manual_seed(args["seed"])
