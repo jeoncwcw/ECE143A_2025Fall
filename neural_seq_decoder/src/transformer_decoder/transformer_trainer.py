@@ -26,11 +26,6 @@ def trainModel(args, model):
         args["batchSize"],
     )
     
-    
-    # Watch the model
-
-    loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
-    
     if args['AdamW']:
         
          optimizer = torch.optim.AdamW(model.parameters(), lr=args['lrStart'], weight_decay=args['l2_decay'], 
@@ -112,11 +107,6 @@ def trainModel(args, model):
             y_len  = y_len.to(args["device"])
             dayIdx = dayIdx.to(args["device"])
 
-            if args.get("nClasses_2") is not None:
-                y2, y2_len = batch[5], batch[6]
-                y2     = y2.to(args["device"])
-                y2_len = y2_len.to(args["device"])
-
             # Noise augmentation is faster on GPU
             if args["whiteNoiseSD"] > 0:
                 X += torch.randn(X.shape, device=args["device"]) * args["whiteNoiseSD"]
@@ -128,33 +118,31 @@ def trainModel(args, model):
                 )
                 
             adjustedLens = model.compute_length(X_len)
-            
-            # Compute prediction error
-            if args.get('nClasses_2') is not None:
-                pred, pred2 = model.forward(X, X_len, dayIdx)
-                loss1 = forward_ctc(pred, adjustedLens, y, y_len)
-                loss2 = forward_ctc(pred2, adjustedLens, y2, y2_len)
-                loss = loss1 + loss2
-                
+           
+            if args['interCTC'] is not None:
+                pred, inter_pred = model.forward(X, X_len, dayIdx)
+                loss_main = forward_ctc(pred, adjustedLens, y, y_len)
+                loss_inter = forward_ctc(inter_pred, adjustedLens, y, y_len)
+                loss = loss_main + args['interWeight'] * loss_inter
             else:
-                
                 pred = model.forward(X, X_len, dayIdx)
+                loss = forward_ctc(pred, adjustedLens, y, y_len)
                 
-                if args['consistency']:
+            # if args['consistency']:
                     
-                    ctc_loss, kl_loss = forward_cr_ctc(pred, adjustedLens.repeat(2), 
-                                                   torch.cat([y, y], dim=0), y_len.repeat(2))
-                    ctc_loss = ctc_loss*0.5
-                    kl_loss = kl_loss*0.5
+            #     ctc_loss, kl_loss = forward_cr_ctc(pred, adjustedLens.repeat(2), 
+            #                                        torch.cat([y, y], dim=0), y_len.repeat(2))
+            #     ctc_loss = ctc_loss*0.5
+            #     kl_loss = kl_loss*0.5
 
-                    train_loss.append(ctc_loss.cpu().detach().numpy())
-                    train_kl_loss.append(kl_loss.cpu().detach().numpy())
+            #     train_loss.append(ctc_loss.cpu().detach().numpy())
+            #     train_kl_loss.append(kl_loss.cpu().detach().numpy())
                     
-                    loss = ctc_loss + args['consistency_scalar']*kl_loss
+            #     loss = ctc_loss + args['consistency_scalar']*kl_loss
                     
-                else:
+            # else:
                     
-                    loss = forward_ctc(pred, adjustedLens, y, y_len)
+                
                 
             train_loss.append(loss.cpu().detach().numpy())
             

@@ -126,10 +126,17 @@ class Transformer(nn.Module):
                 FFN(dim=dim, hidden_dim=mlp_dim, dropout=dropout)
             ]))
 
-    def forward(self, x, mask=None):
-        for attn, ffn in self.layers:
+    def forward(self, x, mask=None, return_layer_indices=None):
+        intermediate_outputs = {}
+        
+        for i, (attn, ffn) in enumerate(self.layers):
             x = attn(x, temporal_mask=mask) + x
             x = ffn(x) + x
+            
+            if return_layer_indices is not None and i in return_layer_indices:
+                intermediate_outputs[i] = x
+        if return_layer_indices is not None:
+            return x, intermediate_outputs
         return self.norm(x)
     
 class BiT_Phoneme(nn.Module):
@@ -137,7 +144,7 @@ class BiT_Phoneme(nn.Module):
     def __init__(self, *, patch_size, dim, depth, heads, mlp_dim_ratio,
                  dim_head, dropout, input_dropout, gaussianSmoothWidth, 
                  nClasses, T5_style_pos, max_mask_pct, num_masks, mask_token_zeros,
-                 num_masks_channels, max_mask_channels, consistency):
+                 num_masks_channels, max_mask_channels, consistency, interCTC):
    
         super().__init__()
 
@@ -154,6 +161,7 @@ class BiT_Phoneme(nn.Module):
         self.num_masks_channels = num_masks_channels
         self.max_channels_to_mask = max_mask_channels
         self.consistency = consistency
+        self.interCTC = interCTC
         
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', 
@@ -166,7 +174,6 @@ class BiT_Phoneme(nn.Module):
         # Patch embedding split from encoder
         self.to_patch = self.to_patch_embedding[0]
         self.patch_to_emb = nn.Sequential(*self.to_patch_embedding[1:])
-
         self.gaussianSmoother = GaussianSmoothing(
             patch_width, 20, self.gaussianSmoothWidth, dim=1
         )
@@ -177,12 +184,12 @@ class BiT_Phoneme(nn.Module):
             self.mask_token = nn.Parameter(torch.randn(self.patch_dim))
                 
         self.dropout = nn.Dropout(input_dropout)
-  
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim_ratio, 
                                     dropout, use_relative_bias=self.T5_style_pos)
-    
         self.projection = nn.Linear(dim, nClasses+1)
         
+        if self.interCTC is not None:
+            self.inter_layer_idx = depth // 2
         
         if self.T5_style_pos == False:
             print("NOT USING T5 STYLE POS")
@@ -199,17 +206,10 @@ class BiT_Phoneme(nn.Module):
         """
         
         neuralInput = pad_to_multiple(neuralInput, multiple=self.patch_height)
-        
-        #if self.training and self.max_channels_to_mask > 0: 
-        #    neuralInput, _ = self.apply_channel_mask(neuralInput)
-        
         neuralInput = torch.permute(neuralInput, (0, 2, 1))
         neuralInput = self.gaussianSmoother(neuralInput)
         neuralInput = torch.permute(neuralInput, (0, 2, 1))
-    
-
         neuralInput = neuralInput.unsqueeze(1)
-        
         # add time masking
         if self.training and self.max_mask_pct > 0:
 
