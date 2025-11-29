@@ -190,6 +190,8 @@ class BiT_Phoneme(nn.Module):
         
         if self.interCTC is not None:
             self.inter_layer_idx = depth // 2
+            self.inter_norm = nn.LayerNorm(dim)
+            self.inter_projection = nn.Linear(dim, nClasses+1)
         
         if self.T5_style_pos == False:
             print("NOT USING T5 STYLE POS")
@@ -250,10 +252,16 @@ class BiT_Phoneme(nn.Module):
         # Create temporal mask
         temporal_mask = create_temporal_mask(seq_len, device=x.device)
 
-        x = self.transformer(x, mask=temporal_mask)
-        
+        if self.interCTC is not None and self.training:
+            x, inter_outputs = self.transformer(x, mask=temporal_mask, return_layer_indices=[self.inter_layer_idx])
+            out = self.projection(x)
+            inter_x = inter_outputs[self.inter_layer_idx]
+            inter_x = self.inter_norm(inter_x)
+            inter_out = self.inter_projection(inter_x)
+            return out, inter_out
+            
+        x = self.transformer(x, mask=temporal_mask)        
         out = self.projection(x)
-        
         return out
     
     def compute_length(self, X_len):
