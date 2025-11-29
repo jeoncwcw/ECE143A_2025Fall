@@ -30,7 +30,7 @@ args = {
     'gaussianSmoothWidth': 2.0,
     'constantOffsetSD': 0.2,
     'l2_decay': 1e-5,
-    'input_dropout': 0.2,
+    'input_dropout': 0.1,
     'dropout': 0.35,
     'AdamW': True,
     'learning_scheduler': 'multistep',
@@ -49,8 +49,8 @@ args = {
     'mask_token_zero' : False,
     'num_masks_channels' : 0, # number of masks per grid
     'max_mask_channels' : 0, # maximum number of channels to mask per mask
-    'max_mask_pct' : 0, 
-    'num_masks' : 0,
+    'max_mask_pct' : 0.075, 
+    'num_masks' : 20,
     'consistency': False, 
     'consistency_scalar': 0.2
 }
