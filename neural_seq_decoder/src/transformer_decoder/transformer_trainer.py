@@ -91,7 +91,6 @@ def trainModel(args, model):
     # --train--
     testLoss = []
     testCER = []
-    testCER2 = []
     startTime = time.time()
     train_loss = []
     train_kl_loss = []
