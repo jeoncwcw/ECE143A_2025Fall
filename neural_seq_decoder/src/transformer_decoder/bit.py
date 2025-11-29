@@ -12,6 +12,40 @@ from .dataset import pad_to_multiple
 Code adapted from Fracois Porcher: https://github.com/FrancoisPorcher/vit-pytorch
 '''
 
+class Swish(nn.Module):
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+class GLU(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+    def forward(self, x):
+        x1, x2 = x.chunk(2, dim=self.dim)
+        return x1 * torch.sigmoid(x2)
+class ConformerConvModule(nn.Module):
+    def __init__(self, dim, expansion_factor=2, kernel_size=31, dropout=0.):
+        super().__init__()
+        inner_dim = dim * expansion_factor
+        self.layer_norm = nn.LayerNorm(dim)
+        self.net = nn.Sequential(
+            #1. Pointwise Conv
+            nn.Conv1d(dim, inner_dim * 2, kernel_size=1),
+            GLU(dim=1),
+            #2. Depthwise Conv
+            nn.Conv1d(inner_dim, inner_dim, kernel_size=kernel_size, padding=(kernel_size-1)//2, groups=inner_dim),
+            nn.BatchNorm1d(inner_dim),
+            Swish(),
+            #3. Pointwise Conv
+            nn.Conv1d(inner_dim, dim, kernel_size=1),
+            nn.Dropout(dropout)
+        )
+    def forward(self, x):
+        x = self.layer_norm(x)
+        x = x.transpose(1,2)  # (B, D, T)
+        x = self.net(x)
+        x = x.transpose(1,2)  # (B, T, D)
+        return x
+
 class FFN(nn.Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
@@ -111,32 +145,89 @@ class Attention(nn.Module):
 
         return self.to_out(out)
 
+class ConformerBlock(nn.Module):
+    def __init__(self, dim, heads, dim_head, mlp_dim, conv_kernel_size=31, 
+                 dropout=0., use_relative_bias=True):
+        super().__init__()
+        
+        # 1. First Feed Forward Module (Half-step)
+        self.ffn1 = FFN(dim, mlp_dim, dropout)
+        self.ffn1_norm = nn.LayerNorm(dim)
+        # 2. Self-Attention Module
+        self.attn = Attention(dim=dim, heads=heads, dim_head=dim_head, 
+                              dropout=dropout, use_relative_bias=use_relative_bias)
+        self.attn_norm = nn.LayerNorm(dim)
+        # 3. Convolution Module
+        self.conv = ConformerConvModule(dim, kernel_size=conv_kernel_size, dropout=dropout)
+        # 4. Second Feed Forward Module (Half-step)
+        self.ffn2 = FFN(dim, mlp_dim, dropout)
+        self.ffn2_norm = nn.LayerNorm(dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, mask=None):
+        # Macaron Style: FFN -> Attn -> Conv -> FFN     
+        # 1/2 FFN
+        residual = x
+        x = self.ffn1(self.ffn1_norm(x))
+        x = residual + 0.5 * x       
+        # Attention
+        residual = x
+        x = self.attn(self.attn_norm(x), temporal_mask=mask)
+        x = residual + x        
+        # Convolution
+        residual = x
+        x = self.conv(x)
+        x = residual + x       
+        # 1/2 FFN
+        residual = x
+        x = self.ffn2(self.ffn2_norm(x))
+        x = residual + 0.5 * x
+        return x
+    
 class Transformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim_ratio, 
-                 dropout=0., use_relative_bias=True):
+                 dropout=0., use_relative_bias=True, use_conformer=None):
         
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.layers = nn.ModuleList([])
         mlp_dim = mlp_dim_ratio * dim
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                Attention(dim=dim, heads=heads, dim_head=dim_head, 
-                          dropout=dropout, use_relative_bias=use_relative_bias),
-                FFN(dim=dim, hidden_dim=mlp_dim, dropout=dropout)
-            ]))
+        self.use_conformer = use_conformer
+        if self.use_conformer is not None:
+            for _ in range(depth):
+                self.layers.append(
+                    ConformerBlock(
+                        dim=dim,
+                        heads=heads,
+                        dim_head=dim_head,
+                        mlp_dim=mlp_dim,
+                        dropout=dropout,
+                        use_relative_bias=use_relative_bias
+                    )
+                )
+        else:
+            for _ in range(depth):
+                self.layers.append(nn.ModuleList([
+                    Attention(dim=dim, heads=heads, dim_head=dim_head, 
+                            dropout=dropout, use_relative_bias=use_relative_bias),
+                    FFN(dim=dim, hidden_dim=mlp_dim, dropout=dropout)
+                ]))
 
     def forward(self, x, mask=None, return_layer_indices=None):
         intermediate_outputs = {}
         
-        for i, (attn, ffn) in enumerate(self.layers):
-            x = attn(x, temporal_mask=mask) + x
-            x = ffn(x) + x
+        for i, layer in enumerate(self.layers):
+            if self.use_conformer is not None:
+                x = layer(x, mask=mask)
+            else:
+                attn, ffn = layer
+                x = attn(x, temporal_mask=mask) + x
+                x = ffn(x) + x
             
             if return_layer_indices is not None and i in return_layer_indices:
                 intermediate_outputs[i] = x
         if return_layer_indices is not None:
-            return x, intermediate_outputs
+            return self.norm(x), intermediate_outputs
         return self.norm(x)
     
 class BiT_Phoneme(nn.Module):
@@ -144,7 +235,7 @@ class BiT_Phoneme(nn.Module):
     def __init__(self, *, patch_size, dim, depth, heads, mlp_dim_ratio,
                  dim_head, dropout, input_dropout, gaussianSmoothWidth, 
                  nClasses, T5_style_pos, max_mask_pct, num_masks, mask_token_zeros,
-                 num_masks_channels, max_mask_channels, consistency, interCTC):
+                 num_masks_channels, max_mask_channels, consistency, interCTC, use_conformer):
    
         super().__init__()
 
@@ -185,7 +276,7 @@ class BiT_Phoneme(nn.Module):
                 
         self.dropout = nn.Dropout(input_dropout)
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim_ratio, 
-                                    dropout, use_relative_bias=self.T5_style_pos)
+                                    dropout, use_relative_bias=self.T5_style_pos, use_conformer=use_conformer)
         self.projection = nn.Linear(dim, nClasses+1)
         
         if self.interCTC is not None:

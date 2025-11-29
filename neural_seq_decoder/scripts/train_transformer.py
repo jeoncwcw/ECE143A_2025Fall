@@ -55,6 +55,7 @@ args = {
     'consistency_scalar': 0.2,
     'interCTC': True,
     'interWeight': 0.3,
+    'use_conformer': None,
 }
 
 print(f"Using dataset: {args['datasetPath']}")
@@ -87,6 +88,7 @@ model = BiT_Phoneme(
     max_mask_channels=args['max_mask_channels'],
     consistency = args['consistency'],
     interCTC = args['interCTC'],
+    use_conformer = args['use_conformer'],
 ).to(args['device'])
 
 # Load pretrained model if specified
