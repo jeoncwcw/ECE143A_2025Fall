@@ -8,7 +8,7 @@ from transformer_decoder.bit import BiT_Phoneme
 
 
 model_name = f"transformer_baseline_v1"
-output_dir = "/mnt/data/jeon/baseline_logs/transformerBaselinev1"
+output_dir = "/mnt/data/jeon/baseline_logs/transformer_interCTC_Conformer_Diet"
 dataset_path = "/mnt/data/jeon/competitionData/ptDecoder_ctc"
     
     # Create config dictionary
@@ -19,7 +19,7 @@ args = {
     'modelName': model_name,
     'maxDay': None,
     'patch_size': (5, 256),
-    'dim': 384,
+    'dim': 256,
     'depth': 5,
     'heads': 6,
     'mlp_dim_ratio': 4,
@@ -55,7 +55,7 @@ args = {
     'consistency_scalar': 0.2,
     'interCTC': True,
     'interWeight': 0.3,
-    'use_conformer': None,
+    'use_conformer': True,
 }
 
 print(f"Using dataset: {args['datasetPath']}")
