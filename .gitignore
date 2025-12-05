@@ -1,3 +1,9 @@
+outputs/
+*.pt
+*.pth
+*.log
+notebooks/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

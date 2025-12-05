@@ -1,5 +1,5 @@
 
-modelName = 'Model 6'
+modelName = 'Model 6' # CHANGE THIS EVERY TIME
 
 args = {}
 args['outputDir'] = 'C:/Users/jerry/OneDrive/Desktop/ECE 243A/ECE 243A Project/neural_seq_decoder/outputs/' + modelName
@@ -7,16 +7,16 @@ args['datasetPath'] = 'C:/Users/jerry/OneDrive/Desktop/ECE 243A/ECE 243A Project
 args['seqLen'] = 150
 args['maxTimeSeriesLen'] = 1200
 args['batchSize'] = 32
-args['lrStart'] = 0.02
+args['lrStart'] = 0.05 # Original: 0.02
 args['lrEnd'] = 0.02
-args['nUnits'] = 1024
-args['nBatch'] = 10000 #3000
+args['nUnits'] = 256 # Original: 1024
+args['nBatch'] = 10000
 args['nLayers'] = 5
 args['seed'] = 0
 args['nClasses'] = 40
 args['nInputFeatures'] = 256
-args['dropout'] = 0.4   
-args['whiteNoiseSD'] = 0.8
+args['dropout'] = 0.2 # Original: 0.4
+args['whiteNoiseSD'] = 1.0 # Original: 0.8
 args['constantOffsetSD'] = 0.2
 args['gaussianSmoothWidth'] = 2.0
 args['strideLen'] = 4

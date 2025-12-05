@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+import random
 
 from edit_distance import SequenceMatcher
 import hydra
@@ -12,6 +13,77 @@ from torch.utils.data import DataLoader
 from .model import GRUDecoder
 from .dataset import SpeechDataset
 
+# Time Masking with for-loops
+def apply_time_masking(x, num_masks, max_mask_width):
+    """
+    Applies time masking to the input tensor X.
+    X shape: (Batch, Time, Features)
+    """
+    masked_x = x.clone()
+    B, T, F = masked_x.shape 
+    
+    for i in range(B):
+        for _ in range(num_masks):
+            t_mask = random.randint(0, max_mask_width)
+            if T - t_mask > 0:
+                t0 = random.randint(0, T - t_mask)
+                masked_x[i, t0 : t0 + t_mask, :] = 0.0
+    return masked_x
+
+# Vectorized Time Masking
+# def apply_time_masking(x, num_masks, max_mask_width):
+#     """
+#     Vectorized Time Masking with SAFETY CLAMP.
+#     """
+#     B, T, F = x.shape
+#     device = x.device
+#     mask = torch.ones(B, T, 1, device=device)
+    
+#     for _ in range(num_masks):
+#         safe_max_width = max(1, T // 2)
+#         real_max = min(max_mask_width, safe_max_width)
+        
+#         mask_lens = torch.randint(1, real_max + 1, (B,), device=device)
+        
+#         max_starts = torch.clamp(T - mask_lens, min=0)
+#         start_idxs = (torch.rand(B, device=device) * max_starts).long()
+        
+#         time_indices = torch.arange(T, device=device).unsqueeze(0)
+#         mask_starts = start_idxs.unsqueeze(1)
+#         mask_ends = (start_idxs + mask_lens).unsqueeze(1)
+        
+#         curr_mask = (time_indices >= mask_starts) & (time_indices < mask_ends)
+#         mask[curr_mask] = 0.0
+
+#     return x * mask
+
+# Vectorized Feature Masking
+# def apply_feature_masking(x, num_masks=2, max_mask_width=64):
+#     """
+#     Vectorized Feature Masking.
+#     x shape: (Batch, Time, Features)
+#     """
+#     B, T, F = x.shape
+#     device = x.device
+    
+#     mask = torch.ones(B, 1, F, device=device)
+    
+#     for _ in range(num_masks):
+#         mask_lens = torch.randint(1, max_mask_width + 1, (B,), device=device)
+        
+#         max_starts = F - mask_lens
+#         start_idxs = (torch.rand(B, device=device) * max_starts).long()
+        
+#         feature_indices = torch.arange(F, device=device).unsqueeze(0) # (1, F)
+        
+#         mask_starts = start_idxs.unsqueeze(1)
+#         mask_ends = (start_idxs + mask_lens).unsqueeze(1)
+        
+#         curr_mask = (feature_indices >= mask_starts) & (feature_indices < mask_ends)
+        
+#         mask[curr_mask.unsqueeze(1)] = 0.0
+
+#     return x * mask
 
 def getDatasetLoaders(
     datasetName,
@@ -84,11 +156,11 @@ def trainModel(args):
     ).to(device)
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW( # Default Optimizer: Adam
         model.parameters(),
         lr=args["lrStart"],
         betas=(0.9, 0.999),
-        eps=0.1,
+        eps=1e-4, # Default value: 0.1
         weight_decay=args["l2_decay"],
     )
     scheduler = torch.optim.lr_scheduler.LinearLR(
@@ -124,6 +196,10 @@ def trainModel(args):
                 * args["constantOffsetSD"]
             )
 
+        if model.training and batch > 3000: 
+            X = apply_time_masking(X, num_masks=2, max_mask_width=25)       # Time Masking params
+            # X = apply_feature_masking(X, num_masks=2, max_mask_width=64)    # Feature Masking params
+
         # Compute prediction error
         pred = model.forward(X, dayIdx)
 
@@ -138,6 +214,9 @@ def trainModel(args):
         # Backpropagation
         optimizer.zero_grad()
         loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) # Supposedly prevents exploding gradients
+
         optimizer.step()
         scheduler.step()
 
