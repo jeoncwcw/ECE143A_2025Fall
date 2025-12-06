@@ -5,7 +5,7 @@ We address the limitations of GRU-based decoders by implementing a **Time-Masked
 **Result:** Our best configuration achieves a **17.59% Phoneme Error Rate (PER)** on the validation set, significantly outperforming the GRU baseline (22.50%).
 
 ## 🚀 Key Contributions & Implementation
-*Unlike the existing GRU implementation, the following features were newly developed by our team:*
+*Unlike the existing GRU implementation, the following features were developed by our team:*
 
 ### 1. Transformer & Conformer Architecture
 **Code:** `src/transformer_decoder/bit.py`
@@ -21,6 +21,18 @@ We address the limitations of GRU-based decoders by implementing a **Time-Masked
 | Model | Configuration | PER (%) |
 | :--- | :--- | :--- |
 | **GRU (Baseline)** | Default | 22.50% |
-| **Transformer** | + Time Masking | 19.05% |
+| **Transformer** | + Time Masking | 17.68% |
 | **Transformer (Ours)** | **+ Time Masking + Inter CTC** | **17.59%** |
 
+## 💻 Usage
+To train the best-performing Transformer model:
+```bash
+python neural_seq_decoder/scripts/train_transformer.py
+```
+
+## 🌿 Branch Guide
+main: The stable release containing the best-performing transformer models and final report logic.
+
+jerry-code: Focuses on robust GRU Baseline improvements and infrastructure setup.
+
+chris-code: Focuses on applying augmentations like feature masking on GRU Baseline.
