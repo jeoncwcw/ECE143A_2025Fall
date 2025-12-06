@@ -31,8 +31,8 @@ python neural_seq_decoder/scripts/train_transformer.py
 ```
 
 ## 🌿 Branch Guide
-main: The stable release containing the best-performing transformer models and final report logic.
+**main**: The stable release containing the best-performing transformer models and final report logic.
 
-jerry-code: Focuses on robust GRU Baseline improvements and infrastructure setup.
+**jerry-code**: Focuses on robust GRU Baseline improvements and infrastructure setup.
 
-chris-code: Focuses on applying augmentations like feature masking on GRU Baseline.
+**chris-code**: Focuses on applying augmentations like feature masking on GRU Baseline.
