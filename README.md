@@ -20,7 +20,7 @@ We address the limitations of GRU-based decoders by implementing a **Time-Masked
 ## 📊 Performance Results
 | Model | Configuration | PER (%) |
 | :--- | :--- | :--- |
-| **GRU (Baseline)** | Default | 22.50% |
+| **GRU (Baseline)** | Default | 22.82% |
 | **Transformer** | + Time Masking | 17.68% |
 | **Transformer (Ours)** | **+ Time Masking + Inter CTC** | **17.59%** |
 
